@@ -5,6 +5,7 @@ import fs from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { FUNDS, CATEGORIES, TSP } from './funds.mjs';
+import { SOURCES, OUTLOOK, outlookKeyFor, TSP_OUTLOOK, MIX_OUTLOOK } from './outlooks.mjs';
 
 const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 const OUT = path.join(ROOT, 'docs', 'data');
@@ -50,10 +51,18 @@ async function auth() {
 }
 async function facts(sym) {
   if (!crumb) await auth();
-  const r = await get(`https://query2.finance.yahoo.com/v10/finance/quoteSummary/${encodeURIComponent(sym)}?modules=fundProfile,defaultKeyStatistics,summaryDetail,price&crumb=${encodeURIComponent(crumb)}`, { headers: { cookie } });
+  const r = await get(`https://query2.finance.yahoo.com/v10/finance/quoteSummary/${encodeURIComponent(sym)}?modules=fundProfile,defaultKeyStatistics,summaryDetail,price,topHoldings&crumb=${encodeURIComponent(crumb)}`, { headers: { cookie } });
   const q = (await r.json()).quoteSummary?.result?.[0] || {};
   const fee = q.fundProfile?.feesExpensesInvestment;
+  const th = q.topHoldings || {};
+  // Yahoo's "priceToEarnings" for funds is reported as earnings ÷ price (e.g. 0.041 = P/E of ~24).
+  const pe = th.equityHoldings?.priceToEarnings?.raw;
+  const earningsYield = pe > 0 && pe < 1 ? pe : pe >= 1 ? 1 / pe : null;
+  const stockPct = th.stockPosition?.raw ?? null;
   return {
+    earningsYield: stockPct != null && stockPct < 0.5 ? null : earningsYield,
+    duration: th.bondHoldings?.duration?.raw || null,
+    stockPct, bondPct: th.bondPosition?.raw ?? null,
     name: q.price?.longName || q.price?.shortName,
     type: q.price?.quoteType === 'MUTUALFUND' ? 'Mutual fund' : 'ETF',
     er: fee?.annualReportExpenseRatio?.raw ?? q.defaultKeyStatistics?.annualReportExpenseRatio?.raw ?? fee?.netExpRatio?.raw ?? null,
@@ -158,6 +167,26 @@ function stats(pts) {
   };
 }
 
+// Every past N-year stretch (one starting each month): worst, typical, best yearly return.
+function ranges(pts) {
+  const me = monthEnds(pts);
+  const out = {};
+  for (const y of [1, 5, 10, 15, 20]) {
+    const n = y * 12;
+    const rs = [];
+    for (let i = 0; i + n < me.length; i++) rs.push(Math.pow(me[i + n][1] / me[i][1], 1 / y) - 1);
+    if (rs.length < 12) { out[y] = null; continue; }
+    const sorted = [...rs].sort((a, b) => a - b);
+    const q = (p) => sorted[Math.min(sorted.length - 1, Math.floor(p * (sorted.length - 1)))];
+    out[y] = {
+      n: rs.length, from: me[0][0].slice(0, 4),
+      min: r4(sorted[0]), p25: r4(q(0.25)), med: r4(q(0.5)), p75: r4(q(0.75)), max: r4(sorted.at(-1)),
+      up: r4(rs.filter((r) => r > 0).length / rs.length),
+    };
+  }
+  return out;
+}
+
 // Monthly series for charts and the calculator: last 25 years, as a growth index.
 function series(pts) {
   const me = monthEnds(pts);
@@ -239,7 +268,12 @@ for (const [s, provider, cat, index, year] of FUNDS) {
     er: f.er ?? old?.er ?? null,
     yield: f.yield ?? old?.yield ?? null,
     assets: f.assets ?? old?.assets ?? null,
+    earningsYield: f.earningsYield ?? (f.name ? null : old?.earningsYield ?? null),
+    duration: f.duration ?? (f.name ? null : old?.duration ?? null),
+    stockPct: f.stockPct ?? old?.stockPct ?? null,
+    outlook: outlookKeyFor(s, cat),
     ...st,
+    range: ranges(hist[s]),
   });
   seriesOut[s] = series(hist[s]);
 }
@@ -251,7 +285,7 @@ try {
     const pts = cols[t.key] || [];
     const st = stats(pts);
     if (st) seriesOut[`TSP:${t.key}`] = series(pts);
-    return { ...t, ...(st || {}), price: pts.at(-1)?.[1] ?? null };
+    return { ...t, ...(st || {}), range: st ? ranges(pts) : null, outlook: TSP_OUTLOOK[t.key] ?? null, price: pts.at(-1)?.[1] ?? null };
   }).filter((t) => t.ret);
 } catch (e) {
   failures.push(`TSP: ${e.message}`);
@@ -265,7 +299,7 @@ if (Object.values(MIX_PARTS).every((s) => hist[s]?.length)) {
     const st = stats(pts);
     if (!st) continue;
     seriesOut[`MIX:${m.id}`] = series(pts);
-    mixes.push({ ...m, ...st, maxDD: st.maxDD, note: 'Built from month-end prices, so the biggest drop is measured month to month.' });
+    mixes.push({ ...m, ...st, range: ranges(pts), outlook: MIX_OUTLOOK[m.id] ?? null, maxDD: st.maxDD, note: 'Built from month-end prices, so the biggest drop is measured month to month.' });
   }
 } else if (prev?.mixes) {
   mixes.push(...prev.mixes);
@@ -280,6 +314,8 @@ const summary = {
   categories: CATEGORIES,
   funds, tsp, mixes,
   mixParts: MIX_PARTS,
+  outlookSources: SOURCES,
+  outlooks: OUTLOOK,
   failures,
 };
 

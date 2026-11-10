@@ -88,6 +88,31 @@
     return pts;
   }
 
+  // ---------- outlook helpers ----------
+  const pctR = (x, d = 1) => (x == null ? '—' : `${(x * 100).toFixed(d)}%`);
+  function expert(key) {
+    const o = key && D.outlooks[key];
+    if (!o) return null;
+    const parts = [];
+    if (o.vanguard) parts.push({ who: 'Vanguard', txt: `${pctR(o.vanguard[0])}–${pctR(o.vanguard[1])}`, mid: (o.vanguard[0] + o.vanguard[1]) / 2 });
+    if (o.jpm != null) parts.push({ who: 'J.P. Morgan', txt: pctR(o.jpm), mid: o.jpm });
+    return { label: o.jpmLabel && !o.vanguard ? o.jpmLabel : o.label, parts, mid: parts.reduce((a, p) => a + p.mid, 0) / parts.length };
+  }
+  const expertMid = (f) => expert(f.outlook)?.mid ?? null;
+  function rangeLine(r, h) {
+    const x = r?.[h];
+    if (!x) return null;
+    return { txt: `${pct(x.min)} to ${pct(x.max)}`, typ: pct(x.med), short: Number(x.from) >= 2009, x };
+  }
+  const isBondLike = (f) => f.cat === 'bond' || f.cat === 'cash';
+  function factorLine(f) {
+    const out = [];
+    if (f.earningsYield) out.push(`P/E ${(1 / f.earningsYield).toFixed(0)}`);
+    if (isBondLike(f) && f.yield) out.push(`yield ${pctR(f.yield)}${f.duration ? ` · duration ${f.duration.toFixed(1)} yrs` : ''}`);
+    else if (f.yield && f.cat === 'dividend') out.push(`dividend ${pctR(f.yield)}`);
+    return out.join(' · ');
+  }
+
   // ---------- tooltip ----------
   const tip = $('#tip');
   function showTip(html, x, y) {
@@ -232,11 +257,12 @@
     let list = D.funds.filter((f) => (!cat || f.cat === cat) && (!prov || f.provider === prov) && (!type || f.type === type) &&
       (!q || f.s.toLowerCase().includes(q) || f.name.toLowerCase().includes(q) || (f.index || '').toLowerCase().includes(q)));
     const key = {
-      ret: (f) => -(f.ret[h] ?? -9), er: (f) => f.er ?? 9, worst: (f) => -(f.worst?.r ?? -9), dd: (f) => -(f.maxDD?.r ?? -9),
+      ret: (f) => -(f.ret[h] ?? -9), outlook: (f) => -(expertMid(f) ?? -9), typical: (f) => -(f.range?.[h]?.med ?? -9), er: (f) => f.er ?? 9, worst: (f) => -(f.worst?.r ?? -9), dd: (f) => -(f.maxDD?.r ?? -9),
       vol: (f) => f.vol ?? 9, name: (f) => f.s,
     }[sort];
     list.sort((a, b) => {
       if (sort === 'ret') { const na = a.ret[h] == null, nb = b.ret[h] == null; if (na !== nb) return na ? 1 : -1; }
+      if (sort === 'outlook') { const na = expertMid(a) == null, nb = expertMid(b) == null; if (na !== nb) return na ? 1 : -1; if (na) return (b.ret[h] ?? -9) - (a.ret[h] ?? -9); }
       const ka = key(a), kb = key(b);
       return typeof ka === 'string' ? ka.localeCompare(kb) : ka - kb;
     });
@@ -254,8 +280,54 @@
           <div>Fee / yr<b>${f.er == null ? '—' : pctPlain(f.er)}</b></div>
           <div>Worst year<b>${f.worst ? `${pct(f.worst.r, 0)} <span class="na">’${String(f.worst.year).slice(2)}</span>` : '—'}</b></div>
           <div>Biggest drop<b>${f.maxDD ? pct(f.maxDD.r, 0) : '—'}</b></div>
-        </div></button>`;
+        </div>
+        ${outlookRow(f, h)}</button>`;
     }).join('');
+  }
+
+  function outlookRow(f, h) {
+    const e = expert(f.outlook);
+    const rl = rangeLine(f.range, h);
+    const fac = factorLine(f);
+    if (!e && !rl && !fac) return '<div class="outl"><span>Outlook: no published forecast and not enough history yet.</span></div>';
+    return `<div class="outl">
+      ${e ? `<span>Experts’ 10-yr outlook <b>${e.parts.map((p) => `${esc(p.who)} ${p.txt}`).join(' · ')}</b></span>` : ''}
+      ${rl ? `<span>Past ${h}-yr stretches <b>${rl.txt}</b> (typical ${rl.typ})${rl.short ? ' <em class="warn">since ' + rl.x.from + ' only</em>' : ''}</span>` : ''}
+      ${fac ? `<span>Today <b>${esc(fac)}</b></span>` : ''}</div>`;
+  }
+
+  function outlookDetail(f, isTsp) {
+    const e = expert(f.outlook);
+    const src = D.outlookSources;
+    const rows = HZ.map((y) => {
+      const x = f.range?.[y];
+      return x ? `<tr><td>${y} yr</td><td>${pct(x.min)}</td><td>${pct(x.med)}</td><td>${pct(x.max)}</td><td>${Math.round(x.up * 100)}%</td><td>${x.n}</td></tr>`
+        : `<tr><td>${y} yr</td><td colspan="5" class="na">not enough history</td></tr>`;
+    }).join('');
+    const from = HZ.map((y) => f.range?.[y]?.from).find(Boolean);
+    const facts = [];
+    if (f.earningsYield) facts.push(`<li><b>Valuation: P/E ${(1 / f.earningsYield).toFixed(1)}</b> (earnings yield ${pctR(f.earningsYield)}). Over long periods, buying when prices are high relative to earnings has been followed by lower returns, and cheap starting prices by higher ones. Earnings yield is a rough guide to long-run return after inflation.</li>`);
+    if (isBondLike(f) && f.yield) facts.push(`<li><b>Current yield ${pctR(f.yield)}</b>${f.duration ? `, duration ${f.duration.toFixed(1)} years` : ''}. For a bond fund held at least about as long as its duration, today’s yield has been the best single estimate of its return.</li>`);
+    if (!isBondLike(f) && f.yield) facts.push(`<li><b>Dividend yield ${pctR(f.yield)}</b>, the part of the return paid out in cash.</li>`);
+    if (!isTsp && f.er != null) facts.push(`<li><b>Fee ${pctPlain(f.er)} a year.</b> The one cost that’s certain: it comes off the return every year.</li>`);
+    if (isTsp) facts.push('<li><b>Fee about 0.05% a year</b>, among the lowest anywhere. The one cost that’s certain: it comes off the return every year.</li>');
+    return `<h3 class="small">Outlook: what might come next</h3>
+      <p class="muted small">No one can predict returns. These are three different ways people estimate a likely range.</p>
+      <div class="olbox">
+        <h4>1. Experts’ forecasts</h4>
+        ${e ? `<p>${esc(e.label)}: ${e.parts.map((p) => `<b>${esc(p.who)} ${p.txt}</b> a year`).join(', ')}.</p>
+          <p class="muted small">${e.parts.map((p) => { const s = p.who === 'Vanguard' ? src.vanguard : src.jpm; return `<a href="${esc(s.url)}" target="_blank" rel="noopener">${esc(s.name)}</a>: ${esc(s.horizon)}, published ${esc(s.published)}.`; }).join(' ')} Forecasts are for the whole asset class, before this fund’s fee.</p>`
+        : '<p class="muted small">Neither Vanguard nor J.P. Morgan publishes a forecast that matches this fund’s category.</p>'}
+      </div>
+      <div class="olbox">
+        <h4>2. Every past stretch of this ${isTsp ? 'TSP fund' : 'fund'}</h4>
+        ${f.range && from ? `<div class="tablewrap"><table class="data"><thead><tr><th>Length</th><th>Worst</th><th>Typical</th><th>Best</th><th>Ended up</th><th>Stretches</th></tr></thead><tbody>${rows}</tbody></table></div>
+          <p class="muted small">Yearly return for every stretch starting each month since ${from}.${Number(from) >= 2009 ? ' This history starts after the 2008 crash, so it has never seen a deep bear market and probably looks rosier than the long run. Funds that track the same index with older histories give a fuller picture.' : ''}</p>` : '<p class="muted small">Not enough history yet.</p>'}
+      </div>
+      <div class="olbox">
+        <h4>3. Starting-point factors</h4>
+        ${facts.length ? `<ul class="small">${facts.join('')}</ul>` : '<p class="muted small">No valuation or yield data for this fund.</p>'}
+      </div>`;
   }
 
   function openDetail(key) {
@@ -283,6 +355,7 @@
       <div id="dChart"></div>
       <h3 class="small">Return by calendar year</h3>
       <div id="dBars"></div>
+      ${outlookDetail(f, isTsp)}
       <div class="mixfoot"><button class="btn" type="button" id="dCompare">Add to calculator</button>
       ${isTsp ? '' : `<a class="small" href="https://finance.yahoo.com/quote/${encodeURIComponent(f.s)}" target="_blank" rel="noopener">More on Yahoo Finance</a>`}</div>`;
     const dlg = $('#detail');
@@ -386,8 +459,10 @@
   }
 
   function renderTspTable() {
-    $('#tspTable').innerHTML = `<thead><tr><th>Fund</th>${HZ.map((x) => `<th>${x}Y</th>`).join('')}<th>This year</th><th>Worst year</th><th>Biggest drop</th></tr></thead><tbody>` +
-      D.tsp.map((t) => `<tr data-k="${esc(t.key)}" style="cursor:pointer"><td>${esc(t.name)}<span class="sub">since ${esc(t.since.slice(0, 4))}</span></td>${HZ.map((x) => `<td>${pct(t.ret[x])}</td>`).join('')}<td>${pct(t.ret.ytd)}</td><td>${t.worst ? `${pct(t.worst.r, 0)} ’${String(t.worst.year).slice(2)}` : '—'}</td><td>${t.maxDD ? pct(t.maxDD.r, 0) : '—'}</td></tr>`).join('') + '</tbody>';
+    const exp = (t) => { const e = expert(t.outlook); return e ? e.parts.map((p) => `${p.who === 'Vanguard' ? 'V' : 'JPM'} ${p.txt}`).join('<br>') : '—'; };
+    const r10 = (t) => { const x = t.range?.[10]; return x ? `${pct(x.min, 0)} to ${pct(x.max, 0)}<span class="sub">typical ${pct(x.med)}</span>` : '—'; };
+    $('#tspTable').innerHTML = `<thead><tr><th>Fund</th>${HZ.map((x) => `<th>${x}Y</th>`).join('')}<th>This year</th><th>Worst year</th><th>Biggest drop</th><th>Past 10-yr stretches</th><th>Experts’ 10-yr</th></tr></thead><tbody>` +
+      D.tsp.map((t) => `<tr data-k="${esc(t.key)}" style="cursor:pointer"><td>${esc(t.name)}<span class="sub">since ${esc(t.since.slice(0, 4))}</span></td>${HZ.map((x) => `<td>${pct(t.ret[x])}</td>`).join('')}<td>${pct(t.ret.ytd)}</td><td>${t.worst ? `${pct(t.worst.r, 0)} ’${String(t.worst.year).slice(2)}` : '—'}</td><td>${t.maxDD ? pct(t.maxDD.r, 0) : '—'}</td><td>${r10(t)}</td><td>${exp(t)}</td></tr>`).join('') + '</tbody>';
     $('#tspTable').onclick = (e) => { const tr = e.target.closest('tr[data-k]'); if (tr) openDetail(`TSP:${tr.dataset.k}`); };
   }
 
@@ -445,8 +520,10 @@
   function renderMixes() {
     const h = ui.mixH;
     const ms = D.mixes;
-    $('#mixTable').innerHTML = `<thead><tr><th>Mix</th>${HZ.map((x) => `<th>${x}Y</th>`).join('')}<th>Worst year</th><th>Biggest drop</th></tr></thead><tbody>` +
-      ms.map((m) => `<tr><td>${esc(m.name)}<span class="sub">${esc(m.desc)}</span></td>${HZ.map((x) => `<td>${pct(m.ret[x])}</td>`).join('')}<td>${m.worst ? `${pct(m.worst.r, 0)} ’${String(m.worst.year).slice(2)}` : '—'}</td><td>${m.maxDD ? pct(m.maxDD.r, 0) : '—'}</td></tr>`).join('') + '</tbody>';
+    const rh = (m) => { const x = m.range?.[h]; return x ? `${pct(x.min, 1)} to ${pct(x.max, 1)}<span class="sub">typical ${pct(x.med)} · ${Math.round(x.up * 100)}% ended up</span>` : '—'; };
+    const ex = (m) => { const e = expert(m.outlook); return e ? e.parts.map((p) => `${esc(p.who)} ${p.txt}`).join('<br>') : '—'; };
+    $('#mixTable').innerHTML = `<thead><tr><th>Mix</th>${HZ.map((x) => `<th>${x}Y</th>`).join('')}<th>Worst year</th><th>Biggest drop</th><th>Every past ${h}-yr stretch</th><th>Experts’ 10-yr</th></tr></thead><tbody>` +
+      ms.map((m) => `<tr><td>${esc(m.name)}<span class="sub">${esc(m.desc)}</span></td>${HZ.map((x) => `<td>${pct(m.ret[x])}</td>`).join('')}<td>${m.worst ? `${pct(m.worst.r, 0)} ’${String(m.worst.year).slice(2)}` : '—'}</td><td>${m.maxDD ? pct(m.maxDD.r, 0) : '—'}</td><td>${rh(m)}</td><td>${ex(m)}</td></tr>`).join('') + '</tbody>';
     const parts = D.mixParts;
     $('#mixNote').textContent = `Built from Vanguard index funds: ${parts.us} (US stocks), ${parts.intl} (international stocks, 30% of the stock part), ${parts.bond} (bonds) and ${parts.short} for cash-like. Rebalanced every month, dividends reinvested. Worst year and biggest drop use month-end prices.`;
     const series = ms.map((m, i) => ({ label: `${m.name} (${m.stocks}% stocks)`, short: `${m.stocks}% stocks`, color: RAMP[i], pts: growth(`MIX:${m.id}`, h, 10000, 0) })).filter((s) => s.pts);

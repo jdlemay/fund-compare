@@ -111,6 +111,14 @@ select, input[type="search"], input[type="number"], input:not([type]) {
 .fund .hz b { display: block; color: var(--text); font-size: 13px; }
 .fund .hz .on { background: var(--surface-2); border-radius: 6px; }
 .fund.nohist { opacity: .7; }
+.fund .outl { grid-column: 1 / -1; order: 4; display: flex; flex-wrap: wrap; gap: 3px 16px; font-size: 12px; color: var(--muted); border-top: 1px solid var(--grid); padding-top: 7px; }
+.fund .outl b { color: var(--text); font-weight: 600; }
+.warn { font-style: normal; font-weight: 600; color: var(--text-2); background: var(--surface-2); border-radius: 5px; padding: 0 5px; white-space: nowrap; }
+.olbox { border: 1px solid var(--line); border-radius: 12px; padding: 10px 12px; margin: 8px 0; }
+.olbox h4 { margin: 0 0 4px; font-size: 14px; }
+.olbox p { margin: 4px 0; }
+.olbox ul { margin: 4px 0; padding-left: 18px; }
+.olbox li { margin: 4px 0; }
 @media (min-width: 900px) {
   .fund { grid-template-columns: minmax(220px, 1.4fr) 110px minmax(280px, 2fr) minmax(260px, 1.6fr); align-items: center; }
   .fund .big { order: 1; }
