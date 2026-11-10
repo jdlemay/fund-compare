@@ -1,0 +1,52 @@
+name: Update data and publish
+
+on:
+  schedule:
+    - cron: '30 22 * * 1-5'   # weekdays ~5:30–6:30 PM Eastern, after the market closes
+  workflow_dispatch:          # "Run workflow" button for a manual refresh
+  push:
+    branches: [main]
+
+permissions:
+  contents: write
+  pages: write
+  id-token: write
+
+concurrency:
+  group: pages
+  cancel-in-progress: false
+
+jobs:
+  update-and-deploy:
+    runs-on: ubuntu-latest
+    environment:
+      name: github-pages
+      url: ${{ steps.deploy.outputs.page_url }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+
+      - name: Refresh fund and TSP data
+        if: github.event_name != 'push'
+        continue-on-error: true   # if a data source is down, publish yesterday's data instead of nothing
+        run: node scripts/update-data.mjs
+
+      - name: Save the new data
+        if: github.event_name != 'push'
+        run: |
+          git config user.name "fund-data-bot"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add docs/data
+          if git diff --cached --quiet; then echo "No changes"; else git commit -m "Daily data update" && git push; fi
+
+      - uses: actions/configure-pages@v5
+
+      - uses: actions/upload-pages-artifact@v3
+        with:
+          path: docs
+
+      - id: deploy
+        uses: actions/deploy-pages@v4

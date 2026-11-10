@@ -1,0 +1,145 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+  <title>Long-Term Fund Compare</title>
+  <meta name="description" content="Compare ETFs, index funds and TSP funds over 1, 5, 10, 15 and 20 years. Historical data only, not advice.">
+  <meta name="robots" content="noindex">
+  <meta name="color-scheme" content="light dark">
+  <link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'><rect width='32' height='32' rx='7' fill='%232a78d6'/><path d='M6 22c4-1 6-6 10-7s6 1 10-6' stroke='white' stroke-width='3' fill='none' stroke-linecap='round'/></svg>">
+  <link rel="stylesheet" href="style.css">
+</head>
+<body>
+  <header class="top">
+    <div class="wrap top-in">
+      <div class="brand">
+        <svg viewBox="0 0 32 32" width="28" height="28" aria-hidden="true"><rect width="32" height="32" rx="7" fill="var(--accent)"/><path d="M6 22c4-1 6-6 10-7s6 1 10-6" stroke="white" stroke-width="3" fill="none" stroke-linecap="round"/></svg>
+        <div>
+          <h1>Long-Term Fund Compare</h1>
+          <p id="asof" class="muted">Loading data…</p>
+        </div>
+      </div>
+      <nav class="tabs" role="tablist" aria-label="Sections">
+        <button role="tab" data-tab="funds" aria-selected="true">Funds</button>
+        <button role="tab" data-tab="tsp" aria-selected="false">TSP</button>
+        <button role="tab" data-tab="calc" aria-selected="false">Calculator</button>
+        <button role="tab" data-tab="mixes" aria-selected="false">Sample mixes</button>
+      </nav>
+    </div>
+  </header>
+
+  <main class="wrap">
+    <p class="notice">Past performance only — returns include reinvested dividends and are after each fund’s fees. This is a comparison tool, not investment advice.</p>
+
+    <!-- FUNDS -->
+    <section id="tab-funds" class="tab" role="tabpanel">
+      <div class="controls">
+        <div class="seg" id="fundHorizon" role="radiogroup" aria-label="Time period"></div>
+        <div class="filters">
+          <label><span>Category</span><select id="fCat"><option value="">All categories</option></select></label>
+          <label><span>Company</span><select id="fProv"><option value="">All companies</option></select></label>
+          <label><span>Type</span><select id="fType"><option value="">ETFs &amp; mutual funds</option><option>ETF</option><option>Mutual fund</option></select></label>
+          <label><span>Sort by</span><select id="fSort">
+            <option value="ret">Highest return</option>
+            <option value="er">Lowest fee</option>
+            <option value="worst">Mildest worst year</option>
+            <option value="dd">Smallest drop</option>
+            <option value="vol">Steadiest (lowest swings)</option>
+            <option value="name">Ticker A–Z</option>
+          </select></label>
+          <label class="grow"><span>Search</span><input id="fSearch" type="search" placeholder="Ticker or name" autocomplete="off"></label>
+        </div>
+      </div>
+      <p id="fCount" class="muted small"></p>
+      <div id="fundList" class="list"></div>
+    </section>
+
+    <!-- TSP -->
+    <section id="tab-tsp" class="tab" role="tabpanel" hidden>
+      <div class="card">
+        <h2>Our TSP mix</h2>
+        <p class="muted">Enter your allocation in percent. Nothing here leaves this device unless you copy the link.</p>
+        <div id="mixForm" class="mixform"></div>
+        <div class="mixfoot">
+          <span id="mixTotal" class="pill">Total 0%</span>
+          <label class="inline">Total balance (optional, stays on this device) <input id="mixBalance" type="number" inputmode="decimal" min="0" step="100" placeholder="$"></label>
+          <button id="copyMix" class="btn" type="button">Copy link to this mix</button>
+          <span id="copied" class="muted small" aria-live="polite"></span>
+        </div>
+        <div id="mixResult"></div>
+      </div>
+
+      <div class="card">
+        <div class="cardhead">
+          <h2>TSP funds vs. outside funds that track the same index</h2>
+          <div class="seg" id="tspHorizon" role="radiogroup" aria-label="Time period"></div>
+        </div>
+        <div id="twins"></div>
+      </div>
+
+      <div class="card">
+        <h2>Every TSP fund</h2>
+        <div class="tablewrap"><table id="tspTable" class="data"></table></div>
+        <p class="muted small">From official tsp.gov share prices (net of TSP’s very low expenses). L 2035/2045/2055+ started in 2020 or later, so they have shorter histories.</p>
+      </div>
+    </section>
+
+    <!-- CALCULATOR -->
+    <section id="tab-calc" class="tab" role="tabpanel" hidden>
+      <div class="card">
+        <h2>What would it have grown to?</h2>
+        <div class="calcform">
+          <label><span>Start with</span><input id="cStart" type="number" inputmode="decimal" min="0" step="1000" value="10000"></label>
+          <label><span>Add each month</span><input id="cMonthly" type="number" inputmode="decimal" min="0" step="50" value="500"></label>
+          <div><span class="lbl">Over the last</span><div class="seg" id="calcHorizon" role="radiogroup" aria-label="Time period"></div></div>
+        </div>
+        <div class="picks" id="picks"></div>
+        <label class="addpick"><span>Add a fund (up to 4)</span>
+          <input id="pickInput" list="pickList" placeholder="Type a ticker, TSP fund or mix" autocomplete="off">
+          <datalist id="pickList"></datalist>
+        </label>
+        <div id="calcResult"></div>
+      </div>
+    </section>
+
+    <!-- MIXES -->
+    <section id="tab-mixes" class="tab" role="tabpanel" hidden>
+      <div class="card">
+        <h2>A common rule of thumb</h2>
+        <p class="muted">Investor-education material often pairs how soon you need money with how much is in stocks. The shorter the time, the less a bad year can be waited out. It is a general starting point, not a recommendation for you.</p>
+        <div class="tablewrap"><table class="data rule">
+          <thead><tr><th>Money needed in</th><th>Mix often shown</th><th>Why</th></tr></thead>
+          <tbody>
+            <tr><td>About 1 year</td><td>Cash-like</td><td>Little time to recover from a drop.</td></tr>
+            <tr><td>About 5 years</td><td>Conservative to moderately conservative</td><td>Some growth, but a bad year still hurts.</td></tr>
+            <tr><td>About 10 years</td><td>Balanced</td><td>Long enough to ride out most downturns.</td></tr>
+            <tr><td>About 15 years</td><td>Growth</td><td>Stocks have usually led over this span.</td></tr>
+            <tr><td>20+ years</td><td>Growth to all stocks</td><td>The most time to recover from crashes like 2008.</td></tr>
+          </tbody>
+        </table></div>
+      </div>
+      <div class="card">
+        <div class="cardhead">
+          <h2>How each mix actually did</h2>
+          <div class="seg" id="mixHorizon" role="radiogroup" aria-label="Time period"></div>
+        </div>
+        <div id="mixChart"></div>
+        <div class="tablewrap"><table id="mixTable" class="data"></table></div>
+        <p class="muted small" id="mixNote"></p>
+      </div>
+    </section>
+  </main>
+
+  <footer class="wrap foot muted small">
+    <p>Data: Yahoo Finance (fund prices with dividends reinvested, fees, yields), tsp.gov (TSP share prices). Refreshed automatically each market day. Figures can contain errors; check a fund’s own website before acting. Past results don’t predict future returns. Not investment advice.</p>
+  </footer>
+
+  <dialog id="detail" aria-labelledby="dTitle">
+    <div class="dhead"><h2 id="dTitle"></h2><button class="x" type="button" aria-label="Close" data-close>×</button></div>
+    <div id="dBody"></div>
+  </dialog>
+  <div id="tip" class="tip" role="tooltip" hidden></div>
+  <script src="app.js"></script>
+</body>
+</html>
